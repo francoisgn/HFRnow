@@ -1629,6 +1629,9 @@ struct WebView: UIViewRepresentable {
                             systemImageName: actionKind.systemImageName,
                             isDestructive: actionKind.isDestructive,
                             handler: { [weak self] in
+                                if let quoteJS = actions.quoteJS {
+                                    Self.toggleQuoteSelection(from: quoteJS)
+                                }
                                 self?.parent.onPopupQuoteRequest?(quoteURL)
                             }
                         )
