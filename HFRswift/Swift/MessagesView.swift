@@ -440,6 +440,53 @@ enum MessagePopupActionSupport {
         ObjCLegacyAccountsManager.shared.currentAccountIdentity()?.displayNameLowercased ?? ""
     }
 
+    /// Returns the first quoteURL for which there is an active multi-quote cookie selection,
+    /// or nil if no selection is currently active.
+    static func activeQuoteURL(from messageActionsByIndex: [Int: TopicPageMessageActions]) -> URL? {
+        let storage = HTTPCookieStorage.shared
+        let now = Date()
+
+        for (_, actions) in messageActionsByIndex {
+            guard let quoteJS = actions.quoteJS, let quoteURL = actions.quoteURL else { continue }
+            guard let components = quoteJSComponents(from: quoteJS) else { continue }
+
+            let cookieValue = storage.cookies?
+                .filter { $0.name == components.cookieName }
+                .first { cookie in
+                    guard let expires = cookie.expiresDate else { return true }
+                    return expires > now
+                }?.value ?? ""
+
+            if cookieValue.contains("|\(components.quoteID)") {
+                return quoteURL
+            }
+        }
+        return nil
+    }
+
+    private static func quoteJSComponents(from quoteJS: String) -> (cookieName: String, quoteID: String)? {
+        guard
+            let openingParenthesis = quoteJS.firstIndex(of: "("),
+            let closingParenthesis = quoteJS[openingParenthesis...].firstIndex(of: ")")
+        else {
+            return nil
+        }
+
+        let argumentRange = quoteJS.index(after: openingParenthesis)..<closingParenthesis
+        let values = quoteJS[argumentRange]
+            .split(separator: ",", omittingEmptySubsequences: false)
+            .map {
+                $0
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .replacingOccurrences(of: "'", with: "")
+                    .replacingOccurrences(of: "\"", with: "")
+            }
+            .filter { !$0.isEmpty }
+
+        guard values.count >= 4 else { return nil }
+        return ("quotes\(values[0])-\(values[1])-\(values[2])", values[3])
+    }
+
 }
 
 private struct MessagePopupSheetSubmissionError: LocalizedError {
@@ -3841,6 +3888,10 @@ struct MessagesView: View {
     }
 
     private func openReplyComposer() {
+        if let quoteURL = MessagePopupActionSupport.activeQuoteURL(from: messageActionsByIndex) {
+            openQuoteComposer(with: quoteURL)
+            return
+        }
         activeComposerPresentationKind = .reply
         composerNavigationTitle = ComposerPresentationKind.reply.title
         composerRequiresSubject = false
